@@ -1,0 +1,98 @@
+-- This file has been generated from package.yaml by hpack version 0.20.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 70549e1ffe86e9f29b8bd01404d00b6e91402dd757584b87037b5ff13e5f9242
+
+name:           sonnets
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/githubuser/sonnets#readme>
+homepage:       https://github.com/githubuser/sonnets#readme
+bug-reports:    https://github.com/githubuser/sonnets/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+cabal-version:  >= 1.10
+
+extra-source-files:
+    ChangeLog.md
+    README.md
+data-files: 1041.txt
+data-dir: data
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/sonnets
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , split
+    , process
+    , ansi-terminal
+    , attoparsec
+    , mtl
+    , lens
+    , bytestring
+    , containers
+    , rainbow
+    , deepseq
+    , parallel
+  exposed-modules:
+      ParseShak
+    , VimLike
+  other-modules:
+      Paths_sonnets
+  default-language: Haskell2010
+
+executable sonnets-exe
+  main-is: Main.hs
+  hs-source-dirs:
+      app
+  ghc-options: -O2
+  build-depends:
+      base >=4.7 && <5
+    , sonnets
+    , split
+    , process
+    , ansi-terminal
+    , attoparsec
+    , mtl
+    , lens
+    , bytestring
+    , containers
+    , rainbow
+    , deepseq
+    , parallel
+  other-modules:
+      Paths_sonnets
+  default-language: Haskell2010
+
+test-suite sonnets-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs:
+      test
+  ghc-options: -O2
+  build-depends:
+      base >=4.7 && <5
+    , sonnets
+    , split
+    , process
+    , ansi-terminal
+    , attoparsec
+    , mtl
+    , lens
+    , bytestring
+    , containers
+    , rainbow
+    , deepseq
+    , parallel
+  other-modules:
+      Paths_sonnets
+  default-language: Haskell2010
