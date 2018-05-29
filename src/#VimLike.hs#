@@ -124,12 +124,11 @@ multipleApp f v = v {
       Nothing -> f (getValue v)
       Just n ->  applyMany n f (getValue v)
   , number = Nothing
-  --, lastJumped = fst (getCurrent v)
+  , lastJumped = fst (getCurrent v)
   }
 
 
 vimStatemode c a = currentMode a c a
-
 
 
 
@@ -157,24 +156,22 @@ mapRetrieveMode mo' x v = Just $
                                     _ -> getValue v), currentMode = mo'}
 
 
-setLastJumped v x = Just $ x {lastJumped = fst (getCurrent v)}
 
 defaultVim se c a = case c of
-  'j' -> just $ multipleApp next a
-  'k' -> just $ multipleApp previous a
-  'm' -> just $ a {currentMode = (mapMode (currentMode a)) }
-  '`' -> just $ a {currentMode = (mapRetrieveMode (currentMode a)) }
-  '/' -> just $ a {searchTerm = "", currentMode = searchMode se search (currentMode a)}
-  '?' -> just $ a {searchTerm = "", currentMode = searchMode se searchBackward (currentMode a)}
-  'n' -> just $ multipleApp (search se (searchTerm a)) a
-  'p' -> just $ multipleApp (searchBackward se (searchTerm a)) a
-  'G' -> just $ a {getValue = end (getValue a)}
-  'g' -> just $ case number a of Nothing -> a {getValue = beginning (getValue a)}; _ -> multipleApp next (a {getValue = beginning (getValue a), number = (\x -> x - 1) <$> number a})
-  'o' -> Just $ multipleApp next (a {getValue = beginning (getValue a), number = Just (lastJumped a - 1)})
+  'j' -> Just $ multipleApp next a
+  'k' -> Just $ multipleApp previous a
+  'm' -> Just $ a {currentMode = (mapMode (currentMode a)) }
+  '`' -> Just $ a {currentMode = (mapRetrieveMode (currentMode a)) }
+  '/' -> Just $ a {searchTerm = "", currentMode = searchMode se search (currentMode a)}
+  '?' -> Just $ a {searchTerm = "", currentMode = searchMode se searchBackward (currentMode a)}
+  'n' -> Just $ multipleApp (search se (searchTerm a)) a
+  'p' -> Just $ multipleApp (searchBackward se (searchTerm a)) a
+  'G' -> Just $ a {getValue = end (getValue a)}
+  'g' -> Just $ case number a of Nothing -> a {getValue = beginning (getValue a)}; _ -> multipleApp next (a {getValue = beginning (getValue a), number = (\x -> x - 1) <$> number a})
+  'o' -> Just $ multipleApp next (a {getValue = beginning (getValue a), number = Just (lastJumped a - 1), lastJumped = })
   y -> if isDigit y
          then let n' = read [y] in
                 Just (case (number a) of
                         Nothing -> a { number = Just n'}
                         Just n'' -> a { number = Just (10*n'' + n')})
          else Nothing
-  where just = setLastJumped a

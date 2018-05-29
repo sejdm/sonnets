@@ -3,7 +3,6 @@ module ParseShak
     ( 
       parseChunks
     , printChunk
-    , printList
     , searchLine
     ) where
 
@@ -33,9 +32,3 @@ printChunk (n, c) = do
 
 searchLine x y = B.map toLower x `B.isInfixOf` B.map toLower y 
 
-
-viewChunkList (n, b) = B.pack (take 4 (show n ++ ('.' : repeat ' '))) `B.append` head (B.lines b)
-
-printList :: (Bool, (Int, B.ByteString)) -> IO ()
-printList (True, c) = (R.putChunkLn $ R.chunk (B.unpack $ viewChunkList c) & R.fore R.red)
-printList (_, c) = B.putStrLn $ viewChunkList c

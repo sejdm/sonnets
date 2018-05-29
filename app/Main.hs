@@ -10,7 +10,7 @@ import System.Console.ANSI
 import Paths_sonnets
 
 
-runChunks fn = runAction fn searchLine Nothing (printChunk, printList) . parseChunks
+runChunks fn = runVimList fn searchLine (showUsingLine (printChunk, head . B.lines)) . parseChunks
 
 
 main :: IO ()
