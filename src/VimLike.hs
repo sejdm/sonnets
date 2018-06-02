@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, NoMonomorphismRestriction #-}
+{-# LANGUAGE OverloadedStrings, NoMonomorphismRestriction, TemplateHaskell #-}
 module VimLike
   (
     runVimList
@@ -20,6 +20,8 @@ import System.Console.ANSI
 import Control.DeepSeq
 import Control.Seq
 import Control.Monad
+import Control.Lens
+import Control.Applicative
 
 -- Helper functions
 applyMany 0 f x = x
@@ -57,27 +59,86 @@ searchBackward se s a@(xs, ys) = case span (not . se s . snd) xs of
   (ds, r:rs) -> (rs , r:reverse ds ++ ys)
 
 
+-- Recursive actions
+
+data RecursiveAction r = RecursiveAction (IO ()) (r -> Maybe (RecursiveAction r))
+-- The type variable r maybe Char or String
+-- depending on whether it is reacting to a keystroke or an entered string
+
+usingString = (getLine, "quit")
+usingChar = (getChar, 'q')
+
+
+runAction (u, q) h (RecursiveAction i f) = do
+  system "clear" >> h >> i
+  c <- u
+  case f c of
+    Nothing ->
+          if (c == q) then showCursor >> return ()
+          else i
+    Just z -> runAction (u, q) h z
+
+
+
+showTitle t = hideCursor >> boldShow t >> putStrLn ""
+  where boldShow t = putChunkLn $ chunk ("     " ++ map toUpper t) & bold
+
+getFileName fn = takeWhile (/='.') $ last $ splitOn "/" fn
+
+showFile = showTitle . getFileName
+
+
+
+-- Modes
+type Mode' c a = c -> a -> Maybe a
+type Mode a = Mode' Char a
+
+modeToAction :: (a -> IO ()) -> Mode' c a -> a -> RecursiveAction c
+modeToAction p f a = RecursiveAction (p a) $ \c ->
+  modeToAction p f <$> f c a
+  
+
+keepApp :: FilePath -> (a -> IO ()) -> Mode a -> a -> IO ()
+keepApp fn p f = runAction usingChar (showFile fn) . modeToAction p f
+
+  
+-- VimState
+data VimState a = VimState {
+    _number :: (Maybe Int)
+  , _buffer :: (M.Map Char Int)
+  , _currentMode :: (Mode (VimState a))
+  , _getValue :: a
+  , _searchTerm :: B.ByteString
+  , _lastJumped :: Int
+  }
+
+makeLenses ''VimState
+
+getCurrent = head . snd . _getValue
+
 -- Main exported function
 runVimList fn se f xs = keepApp fn f vimStatemode $
   VimState {
-    number = Nothing
-  , buffer = M.empty
-  , searchTerm = ""
-  , currentMode = defaultVim se
-  , getValue = ([], zip [1..] xs)
-  , lastJumped = 1
+    _number = Nothing
+  , _buffer = M.empty
+  , _searchTerm = ""
+  , _currentMode = defaultVim se
+  , _getValue = ([], zip [1..] xs)
+  , _lastJumped = 1
   }
+
+
 
 -- Printing convenience functions
 showSurroundList (fl1, fl2) (xs, (y:ys)) = mapM_ f (take 20 (zip (repeat False) (reverse (take 10 xs)) ++ ((True, y) :zip (repeat False) ys)))
   where f (True, x) = fl1 x
         f (False, x) = fl2 x
 
-showSearch x = (putChunk $ chunk ("Search Term: " :: B.ByteString) & italic) >> case searchTerm x of
+showSearch x = (putChunk $ chunk ("Search Term: " :: B.ByteString) & italic) >> case _searchTerm x of
   "" -> B.putStrLn ""
   s -> B.putStr s
 
-showBoth (f, fl1, fl2) x = f (getCurrent x) >> replicateM_ 3 (putStrLn "") >> showSurroundList (fl1, fl2) (getValue x) >> putStrLn "" >> showSearch x 
+showBoth (f, fl1, fl2) x = f (getCurrent x) >> replicateM_ 3 (putStrLn "") >> showSurroundList (fl1, fl2) (_getValue x) >> putStrLn "" >> showSearch x 
 
 showCurrent f = f . getCurrent
 
@@ -88,93 +149,85 @@ printListHighlighted l c = (putChunkLn $ chunk (B.unpack $ viewChunkList l c) & 
 printListUnHighlighted l c = B.putStrLn $ viewChunkList l c
 
 showUsingLine (f, l) = showBoth (f, printListHighlighted l, printListUnHighlighted l)
--- Modes
 
 
-type Mode a = Char -> a -> Maybe a
+-- Multiple applications
 
-keepApp :: FilePath -> (a -> IO ()) -> Mode a -> a -> IO ()
-keepApp fn f mo a =
-  do system "clear" >> hideCursor 
-     putChunkLn $ chunk ("     " ++ (map toUpper $ takeWhile (/='.') $ last $ splitOn "/" fn)) & bold
-     putStrLn "" >> f a
-     c <- getChar
-     if (c == 'q')
-       then showCursor >> return ()
-       else 
-         case mo c a of
-           Nothing -> keepApp fn f mo a 
-           Just z -> keepApp fn f mo z
+multipleApp f v = v & number .~ Nothing
+  & getValue .~ case v ^. number of
+                  Nothing -> f (v ^. getValue)
+                  Just n ->  applyMany n f (v ^. getValue)
 
--- VimState
+vimStatemode c a = view currentMode a c a
 
-data VimState a = VimState {
-    number :: (Maybe Int)
-  , buffer :: (M.Map Char Int)
-  , currentMode :: (Mode (VimState a))
-  , getValue :: a
-  , searchTerm :: B.ByteString
-  , lastJumped :: Int
-  }
+-- Mode convenience functions
 
-getCurrent = head . snd . getValue
-
-multipleApp f v = v {
-  getValue = case number v of
-      Nothing -> f (getValue v)
-      Just n ->  applyMany n f (getValue v)
-  , number = Nothing
-  --, lastJumped = fst (getCurrent v)
-  }
+multi' f =  Just . multipleApp f
+onlyOn' o f =  Just . over o f
+assignTo' s x =  Just . set s x
 
 
-vimStatemode c a = currentMode a c a
+multi f a = setLastJumped a $ multipleApp f a
+onlyOn o f a = setLastJumped a $ over o f a
+assignTo s x a = setLastJumped a $ set s x a
 
+noJump = const Just
+jump = setLastJumped
 
+setLastJumped v x = Just $ x & lastJumped .~ fst (getCurrent v)
+
+thenTry m1 m2 = \c a -> m1 c a <|> m2 c a
 
 
 -- Various convenient modes
 
-searchMode se sf mo' c v = Just $
+searchMode se sf mo' c = 
   case c of
-    '\n' -> v {currentMode = mo', getValue = sf se (searchTerm v) (getValue v)}
-    '\DEL' -> v {searchTerm = B.reverse (tail' (B.reverse (searchTerm v))) }
-    '\ESC' -> v {searchTerm = "", currentMode = mo'}
-    c' -> v {searchTerm = searchTerm v `B.append` B.pack [c']}
+    '\n' -> (\x -> onlyOn' getValue (sf se (x ^. searchTerm)) x) >=> assignTo' currentMode mo'
+    '\DEL' -> onlyOn' searchTerm (B.reverse . tail' . B.reverse )
+    '\ESC' -> assignTo' searchTerm "" >=> assignTo' currentMode mo'
+    c' -> onlyOn' searchTerm (`B.append` B.pack [c'])
   where tail' "" = ""
         tail' x = B.tail x
 
 mapMode mo' c v = Just $
-  v { buffer = (case (snd (getValue v)) of
-                ((i,_):_) -> M.insert c i (buffer v)
-                _ -> (buffer v))
-    , currentMode = mo' }
+  v { _buffer = (case (snd (_getValue v)) of
+                ((i,_):_) -> M.insert c i (_buffer v)
+                _ -> (_buffer v))
+    , _currentMode = mo' }
 
 
 mapRetrieveMode mo' x v = Just $
-  (buffer v) `seq` v {getValue =  (case (snd (getValue v)) of
-                                    ((n',_):_) -> move (M.findWithDefault n' x (buffer v) - n') (getValue v)
-                                    _ -> getValue v), currentMode = mo'}
+  (_buffer v) `seq` v {_getValue =  (case (snd (_getValue v)) of
+                                    ((n',_):_) -> move (M.findWithDefault n' x (_buffer v) - n') (_getValue v)
+                                    _ -> _getValue v), _currentMode = mo'}
 
 
-setLastJumped v x = Just $ x {lastJumped = fst (getCurrent v)}
 
-defaultVim se c a = case c of
-  'j' -> just $ multipleApp next a
-  'k' -> just $ multipleApp previous a
-  'm' -> just $ a {currentMode = (mapMode (currentMode a)) }
-  '`' -> just $ a {currentMode = (mapRetrieveMode (currentMode a)) }
-  '/' -> just $ a {searchTerm = "", currentMode = searchMode se search (currentMode a)}
-  '?' -> just $ a {searchTerm = "", currentMode = searchMode se searchBackward (currentMode a)}
-  'n' -> just $ multipleApp (search se (searchTerm a)) a
-  'p' -> just $ multipleApp (searchBackward se (searchTerm a)) a
-  'G' -> just $ a {getValue = end (getValue a)}
-  'g' -> just $ case number a of Nothing -> a {getValue = beginning (getValue a)}; _ -> multipleApp next (a {getValue = beginning (getValue a), number = (\x -> x - 1) <$> number a})
-  'o' -> Just $ multipleApp next (a {getValue = beginning (getValue a), number = Just (lastJumped a - 1)})
-  y -> if isDigit y
-         then let n' = read [y] in
-                Just (case (number a) of
-                        Nothing -> a { number = Just n'}
-                        Just n'' -> a { number = Just (10*n'' + n')})
-         else Nothing
-  where just = setLastJumped a
+defaultVim se = normalMode se `thenTry` digitMode
+
+normalMode se c = case c of
+  'j' -> multi next
+  'k' -> multi previous
+  'm' -> onlyOn currentMode mapMode
+  '`' -> onlyOn currentMode mapRetrieveMode
+  '/' -> onlyOn currentMode (searchMode se search) >=> assignTo searchTerm ""
+  '?' -> onlyOn currentMode (searchMode se searchBackward) >=> assignTo searchTerm ""
+  'n' -> onlyOn getValue next >=> \x -> multi (search se (x ^. searchTerm)) x
+  'p' -> onlyOn getValue next >=> \x -> multi (searchBackward se (x ^. searchTerm)) x
+  'G' -> onlyOn getValue end
+
+  'g' -> \a -> case a ^. number of
+               Nothing -> onlyOn getValue beginning a
+               _ -> (multi next <=< onlyOn number ((\x -> x - 1) <$>)
+                    <=< onlyOn getValue beginning) a
+
+  'o' -> (\a -> assignTo number (Just (a ^. lastJumped - 1)) a) >=> onlyOn getValue beginning >=> multi next
+
+  _ -> const Nothing
+
+digitMode c x | isDigit c =  case (x ^. number) of
+                               Nothing -> assignTo number (Just n') x
+                               Just n'' -> n'' `seq` assignTo number (Just (10*n'' + n')) x
+              | otherwise = Nothing 
+              where n' = read [c]
